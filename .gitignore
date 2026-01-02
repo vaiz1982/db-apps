@@ -1,2 +1,40 @@
-venv/
-**/*/__pycache__/
+cd ~/db-apps
+cat > .gitignore << 'EOF'
+# Python
+venv*/
+venv_*/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.env
+.venv
+
+# Database
+*.sqlite3
+*.db
+
+# Logs
+*.log
+logs/
+*.pid
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System
+*.service
+/tmp/
+
+# Project specific
+clean_schema.sql
+schema.sql
+EOF

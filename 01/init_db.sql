@@ -1,4 +1,5 @@
-CREATE DATABASE flaskapp_db;
+CREATE DATABASE IF NOT EXISTS flaskapp_db;
+
 CREATE USER 'flaskapp'@'localhost' IDENTIFIED BY 'flaskpass';
 GRANT ALL PRIVILEGES ON flaskapp_db.* TO 'flaskapp'@'localhost';
 FLUSH PRIVILEGES;

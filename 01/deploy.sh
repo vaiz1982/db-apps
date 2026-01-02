@@ -1,0 +1,237 @@
+#!/bin/bash
+# ==========================================
+# Full Setup Script: Flask + MariaDB + Gunicorn + Nginx
+# Ubuntu 24.04
+# ==========================================
+
+set -e  # Stop on errors
+
+# 1️⃣ Update system
+echo "Updating system..."
+sudo apt update && sudo apt upgrade -y
+
+# 2️⃣ Install required packages
+echo "Installing required packages..."
+sudo apt install -y python3 python3-venv python3-pip \
+ mariadb-server mariadb-client libmariadb-dev \
+ nginx curl ufw git build-essential
+
+# 3️⃣ Go to project directory
+PROJECT_DIR="/home/ubuntu/db-apps/01"
+echo "Going to project directory: $PROJECT_DIR"
+cd $PROJECT_DIR
+
+# 4️⃣ Create Python virtual environment if not exists
+if [ ! -d "venv_01" ]; then
+    echo "Creating Python virtual environment..."
+    python3 -m venv venv_01
+fi
+source venv_01/bin/activate
+
+# 5️⃣ Upgrade pip and install Python dependencies
+echo "Upgrading pip..."
+pip install --upgrade pip
+
+if [ -f requirements.txt ]; then
+    echo "Installing Python dependencies..."
+    pip install -r requirements.txt
+else
+    echo "requirements.txt not found! Skipping Python dependencies installation."
+fi
+
+# 6️⃣ Start and enable MariaDB
+echo "Starting MariaDB..."
+sudo systemctl start mariadb
+sudo systemctl enable mariadb
+
+# 7️⃣ Create database and user safely
+DB_NAME="flaskapp_db"
+DB_USER="flaskapp"
+DB_PASS="flaskpass"
+
+echo "Cleaning up existing database and user..."
+sudo mysql -u root <<EOF
+-- Kill any active connections from the user
+SELECT CONCAT('KILL ', id, ';') 
+FROM information_schema.processlist 
+WHERE user='$DB_USER' 
+INTO OUTFILE '/tmp/kill_user.sql';
+SOURCE /tmp/kill_user.sql;
+
+-- Remove existing user and database
+DROP USER IF EXISTS '$DB_USER'@'localhost';
+DROP DATABASE IF EXISTS $DB_NAME;
+FLUSH PRIVILEGES;
+
+-- Clean up temp file
+\! rm -f /tmp/kill_user.sql
+EOF
+
+echo "Creating fresh database and user..."
+sudo mysql -u root <<EOF
+-- Create fresh database
+CREATE DATABASE $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Create fresh user
+CREATE USER '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';
+
+-- Grant privileges
+GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';
+
+-- Apply changes
+FLUSH PRIVILEGES;
+
+-- Verify creation
+SELECT "Database and user created successfully!" as Status;
+SELECT User, Host FROM mysql.user WHERE User = '$DB_USER';
+SHOW DATABASES LIKE '$DB_NAME';
+EOF
+
+# 8️⃣ Create and import schema.sql (instead of using init_db.sql)
+echo "Creating schema.sql file..."
+cat > schema.sql << 'EOF'
+CREATE TABLE IF NOT EXISTS servers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    role VARCHAR(100),
+    os VARCHAR(100)
+);
+
+INSERT INTO servers (name, role, os) VALUES 
+('web01', 'web', 'Ubuntu 24.04'),
+('db01', 'database', 'Ubuntu 24.04');
+EOF
+
+echo "Importing schema.sql into $DB_NAME..."
+sudo mysql -u root $DB_NAME < schema.sql
+echo "Database schema imported successfully!"
+
+# Verify the data was inserted
+echo "Verifying data in $DB_NAME..."
+sudo mysql -u root $DB_NAME -e "SELECT COUNT(*) as server_count FROM servers;"
+sudo mysql -u root $DB_NAME -e "SELECT * FROM servers;"
+
+# 9️⃣ Test database connection
+echo "Testing database connection..."
+if sudo mysql -u $DB_USER -p$DB_PASS -e "SELECT 'Connection successful!' as Status;" 2>/dev/null; then
+    echo "✓ Database connection successful!"
+else
+    echo "✗ Database connection failed!"
+    exit 1
+fi
+
+# 🔟 Create systemd service for Gunicorn
+SERVICE_FILE="/etc/systemd/system/db_apps_01.service"
+echo "Creating systemd service $SERVICE_FILE..."
+sudo tee $SERVICE_FILE > /dev/null <<EOL
+[Unit]
+Description=Flask + MariaDB App
+After=network.target mariadb.service
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=$PROJECT_DIR
+Environment="PATH=$PROJECT_DIR/venv_01/bin"
+ExecStart=$PROJECT_DIR/venv_01/bin/gunicorn --workers 3 --bind 0.0.0.0:8000 wsgi:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+sudo systemctl daemon-reload
+sudo systemctl enable db_apps_01.service
+sudo systemctl restart db_apps_01.service
+
+# 1️⃣1️⃣ Configure Nginx reverse proxy
+NGINX_FILE="/etc/nginx/sites-available/db_apps_01"
+echo "Configuring Nginx..."
+sudo tee $NGINX_FILE > /dev/null <<EOL
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+}
+EOL
+
+sudo ln -sf $NGINX_FILE /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
+
+# 1️⃣2️⃣ Configure UFW firewall
+echo "Configuring UFW firewall..."
+sudo ufw allow 'OpenSSH'
+sudo ufw allow 'Nginx Full'
+sudo ufw --force enable
+
+# 1️⃣3️⃣ Show status
+echo "Checking services status..."
+echo ""
+echo "=== MariaDB Status ==="
+sudo systemctl status mariadb --no-pager | head -5
+echo ""
+echo "=== Gunicorn Status ==="
+sudo systemctl status db_apps_01.service --no-pager | head -10
+echo ""
+echo "=== Nginx Status ==="
+sudo systemctl status nginx --no-pager | head -5
+
+# 1️⃣4️⃣ Test the application
+echo ""
+echo "Testing application..."
+sleep 3
+echo "Checking if Flask app is responding..."
+if curl -s -f http://127.0.0.1:8000 > /dev/null; then
+    echo "✓ Flask app is running on port 8000"
+else
+    echo "✗ Flask app is not responding on port 8000"
+    echo "Checking Gunicorn logs..."
+    sudo journalctl -u db_apps_01.service --no-pager | tail -20
+fi
+
+echo ""
+echo "Checking Nginx..."
+if curl -s -f http://localhost > /dev/null; then
+    echo "✓ Nginx is serving the app on port 80"
+else
+    echo "✗ Nginx is not responding on port 80"
+    echo "Checking Nginx logs..."
+    sudo tail -20 /var/log/nginx/error.log
+fi
+
+# Get public IP
+PUBLIC_IP=$(curl -s ifconfig.me || curl -s icanhazip.com || echo "your-server-ip")
+LOCAL_IP=$(hostname -I | awk '{print $1}')
+
+echo ""
+echo "======================================="
+echo "SETUP COMPLETE!"
+echo "======================================="
+echo "Your Flask app is now running on:"
+echo "  • http://$PUBLIC_IP/"
+echo "  • http://$LOCAL_IP/"
+echo ""
+echo "Database Configuration:"
+echo "  • Database: $DB_NAME"
+echo "  • Username: $DB_USER"
+echo "  • Password: $DB_PASS"
+echo ""
+echo "Service Information:"
+echo "  • Gunicorn: http://127.0.0.1:8000"
+echo "  • Nginx: Port 80"
+echo "  • MariaDB: Port 3306"
+echo ""
+echo "To check logs:"
+echo "  • sudo journalctl -u db_apps_01.service -f"
+echo "  • sudo tail -f /var/log/nginx/error.log"
+echo ""
+echo "To test database:"
+echo "  • sudo mysql -u $DB_USER -p$DB_PASS $DB_NAME -e 'SELECT * FROM servers;'"
+echo "======================================="
