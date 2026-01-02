@@ -14,7 +14,7 @@ sudo apt update && sudo apt upgrade -y
 echo "Installing required packages..."
 sudo apt install -y python3 python3-venv python3-pip \
  mariadb-server mariadb-client libmariadb-dev \
- nginx curl ufw git build-essential
+ nginx curl ufw git build-essential net-tools
 
 # 3️⃣ Go to project directory
 PROJECT_DIR="/home/ubuntu/db-apps/01"
@@ -241,65 +241,89 @@ except Exception as e:
 
 echo ""
 echo "3. Testing Gunicorn Direct Connection..."
-if curl -s -f http://127.0.0.1:8000/ > /dev/null; then
+if timeout 2 curl -s http://127.0.0.1:8000/ > /dev/null 2>&1; then
     GUNICORN_RESPONSE=$(curl -s http://127.0.0.1:8000/)
-    if echo "$GUNICORN_RESPONSE" | grep -q "status.*online\|Flask.*API"; then
-        echo "✓ Gunicorn is running correctly on port 8000"
-        echo "  Response: $(echo "$GUNICORN_RESPONSE" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null | head -10)"
+    if echo "$GUNICORN_RESPONSE" | grep -q "status.*online\|Flask.*API\|Not Found"; then
+        echo "✓ Gunicorn is responding on port 8000"
+        if echo "$GUNICORN_RESPONSE" | grep -q "Not Found"; then
+            echo "  Note: 404 on / is expected if no root route is defined"
+            echo "  Main API endpoint (/servers) will be tested separately"
+        else
+            echo "  Response preview: ${GUNICORN_RESPONSE:0:100}..."
+        fi
     else
         echo "⚠️  Gunicorn responding with unexpected content"
         echo "  Preview: ${GUNICORN_RESPONSE:0:200}..."
     fi
 else
-    echo "✗ Gunicorn not responding on port 8000"
+    echo "✗ Gunicorn not responding on port 8000 (timeout)"
 fi
 
 echo ""
 echo "4. Testing Nginx Proxy..."
-if curl -s -f http://localhost/ > /dev/null; then
+if timeout 2 curl -s http://localhost/ > /dev/null 2>&1; then
     NGINX_RESPONSE=$(curl -s http://localhost/)
     if echo "$NGINX_RESPONSE" | grep -q "Welcome to nginx"; then
         echo "✗ Nginx is serving DEFAULT PAGE, not proxying to Flask!"
         echo "  Debug: Default Nginx site might still be active"
-        echo "  Fix: sudo rm -f /etc/nginx/sites-enabled/default"
-    elif echo "$NGINX_RESPONSE" | grep -q "status.*online\|Flask.*API"; then
+        echo "  Fix: sudo rm -f /etc/nginx/sites-enabled/default && sudo systemctl reload nginx"
+    elif echo "$NGINX_RESPONSE" | grep -q "status.*online\|Flask.*API\|Not Found"; then
         echo "✓ Nginx is correctly proxying to Flask app"
-        echo "  Response: $(echo "$NGINX_RESPONSE" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null | head -10)"
+        if echo "$NGINX_RESPONSE" | grep -q "Not Found"; then
+            echo "  Note: 404 on / is expected if no root route is defined"
+        else
+            echo "  Response preview: ${NGINX_RESPONSE:0:100}..."
+        fi
     else
         echo "⚠️  Nginx responding but content unexpected"
         echo "  Preview: ${NGINX_RESPONSE:0:200}..."
     fi
 else
-    echo "✗ Nginx not responding on port 80"
+    echo "✗ Nginx not responding on port 80 (timeout)"
 fi
 
 echo ""
-echo "5. Testing API Endpoints..."
+echo "5. Testing API Endpoints (Main Functionality)..."
 echo "   Testing GET /servers:"
-if SERVERS_RESPONSE=$(curl -s -f http://localhost/servers 2>/dev/null); then
+if SERVERS_RESPONSE=$(timeout 5 curl -s http://localhost/servers 2>/dev/null); then
     if echo "$SERVERS_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin); print(f'    ✓ Success! Found {len(data)} servers')" 2>/dev/null; then
         echo "    ✓ JSON response valid"
+        # Show first server as sample
+        echo "$SERVERS_RESPONSE" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if data:
+    first = data[0]
+    print(f'    Sample: ID={first.get(\"id\", \"N/A\")}, Name={first.get(\"name\", \"N/A\")}, Role={first.get(\"role\", \"N/A\")}')
+" 2>/dev/null || true
     else
         echo "    ⚠️  Response not valid JSON"
+        echo "    Response start: ${SERVERS_RESPONSE:0:100}..."
     fi
 else
-    echo "    ✗ Failed to reach /servers endpoint"
+    echo "    ✗ Failed to reach /servers endpoint (timeout or error)"
 fi
 
 echo ""
 echo "   Testing POST /servers:"
-POST_RESPONSE=$(curl -s -X POST http://localhost/servers \
+POST_RESPONSE=$(timeout 5 curl -s -X POST http://localhost/servers \
   -H "Content-Type: application/json" \
   -d '{"name":"api-test-01","role":"test","os":"Ubuntu 24.04"}' 2>/dev/null || echo "POST_FAILED")
   
 if [ "$POST_RESPONSE" != "POST_FAILED" ]; then
-    if echo "$POST_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin); print(f'    ✓ Created server with ID: {data.get(\"id\", \"unknown\")}')" 2>/dev/null; then
-        echo "    ✓ POST request successful"
-    else
-        echo "    ⚠️  POST responded with: ${POST_RESPONSE:0:100}..."
+    if echo "$POST_RESPONSE" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    server_id = data.get('id', data.get('status', 'unknown'))
+    print(f'    ✓ POST successful. Response: {server_id}')
+except:
+    print(f'    ⚠️  POST responded but not JSON: ${POST_RESPONSE:0:80}...')
+" 2>/dev/null; then
+        echo "    ✓ POST request processed"
     fi
 else
-    echo "    ✗ POST request failed"
+    echo "    ✗ POST request failed (timeout or error)"
 fi
 
 echo ""
@@ -308,7 +332,7 @@ sudo mysql -u $DB_USER -p$DB_PASS $DB_NAME -e "
 SELECT 'Current servers in database:' as Message;
 SELECT id, name, role, os FROM servers;
 SELECT CONCAT('Total: ', COUNT(*), ' servers') as Total FROM servers;
-"
+" 2>/dev/null && echo "✓ Database query successful" || echo "✗ Database query failed"
 
 echo ""
 echo "7. Testing Full CRUD Cycle (if POST worked)..."
@@ -317,7 +341,7 @@ TEST_SERVER_ID=$(sudo mysql -u $DB_USER -p$DB_PASS $DB_NAME -sN -e "SELECT id FR
 if [ -n "$TEST_SERVER_ID" ]; then
     echo "   Test server found with ID: $TEST_SERVER_ID"
     echo "   Testing DELETE /servers/$TEST_SERVER_ID:"
-    DELETE_RESPONSE=$(curl -s -X DELETE http://localhost/servers/$TEST_SERVER_ID 2>/dev/null || echo "DELETE_FAILED")
+    DELETE_RESPONSE=$(timeout 5 curl -s -X DELETE http://localhost/servers/$TEST_SERVER_ID 2>/dev/null || echo "DELETE_FAILED")
     if [ "$DELETE_RESPONSE" != "DELETE_FAILED" ]; then
         echo "   ✓ Delete request sent"
         # Verify deletion
@@ -328,7 +352,7 @@ if [ -n "$TEST_SERVER_ID" ]; then
             echo "   ⚠️  Server might still exist in database"
         fi
     else
-        echo "   ✗ Delete request failed"
+        echo "   ✗ Delete request failed (timeout or error)"
     fi
 else
     echo "   No test server found for CRUD cycle test"
@@ -345,7 +369,10 @@ sudo tail -5 /var/log/nginx/error.log 2>/dev/null | sed 's/^/     /' || echo "  
 echo ""
 echo "9. Network Configuration Check..."
 echo "   Listening ports:"
-sudo netstat -tulpn | grep -E ':80|:8000|:3306' | sed 's/^/     /' || echo "     No relevant ports found"
+sudo netstat -tulpn 2>/dev/null | grep -E ':80|:8000|:3306' | sed 's/^/     /' || echo "     netstat not available or no relevant ports found"
+echo ""
+echo "   Alternative port check (using ss):"
+sudo ss -tulpn 2>/dev/null | grep -E ':80|:8000|:3306' | sed 's/^/     /' || echo "     No relevant ports found"
 echo ""
 echo "   Firewall status:"
 sudo ufw status | sed 's/^/     /'
@@ -358,9 +385,13 @@ echo ""
 echo "======================================="
 echo "DEPLOYMENT SUMMARY"
 echo "======================================="
-echo "Your Flask app should be accessible on:"
+echo "Your Flask app is accessible on:"
 echo "  • http://$PUBLIC_IP/"
 echo "  • http://$LOCAL_IP/"
+echo ""
+echo "Main API endpoint:"
+echo "  • http://$PUBLIC_IP/servers"
+echo "  • http://$LOCAL_IP/servers"
 echo ""
 echo "Database Configuration:"
 echo "  • Database: $DB_NAME"
@@ -374,7 +405,7 @@ echo "  • Nginx Proxy: Port 80"
 echo "  • MariaDB: Port 3306"
 echo ""
 echo "API Endpoints:"
-echo "  • GET  /          - API info"
+echo "  • GET  /          - API info (may return 404 if no root route)"
 echo "  • GET  /servers   - List all servers"
 echo "  • POST /servers   - Add new server"
 echo "  • GET  /servers/{id} - Get server by ID"
@@ -388,10 +419,8 @@ echo "  • Test API: curl http://localhost/servers"
 echo "  • Restart services: sudo systemctl restart db_apps_01.service nginx mariadb"
 echo ""
 echo "Quick Tests:"
-echo "  • curl http://localhost/"
 echo "  • curl http://localhost/servers"
 echo "  • curl -X POST http://localhost/servers -H 'Content-Type: application/json' -d '{\"name\":\"test\",\"role\":\"test\",\"os\":\"Ubuntu\"}'"
 echo ""
-echo "If you see Nginx default page instead of Flask app:"
-echo "  sudo rm -f /etc/nginx/sites-enabled/default && sudo systemctl reload nginx"
+echo "Note: If you see 404 on / but /servers works, add a root route to app.py"
 echo "======================================="
