@@ -1,16 +1,46 @@
-# ==========================================
-# PROJECT 02 .gitignore - Specific to Task Tracker
-# ==========================================
+# Python/Virtual Environments
+venv_02/
+venv*/
+.venv/
+.env
+.Python
 
-# Project-specific files (not covered by root patterns)
-app.py.backup*          # Specific backup file pattern
-deploy-02.sh.backup*    # Deployment script backups
-test_output/            # Test output directory
-coverage.xml            # Test coverage reports
-*.log                   # Project-specific logs (already in root but explicit)
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
 
-# If you want to be extra safe, you can list project-specific ignores:
-# These are already covered by root patterns, but explicit is ok
-# venv_02/               # Covered by root: venv*/
-# .env                   # Covered by root: .env
-# __pycache__/          # Covered by root: __pycache__/
+# Database files
+*.sqlite3
+*.db
+*.sql
+
+# Logs
+*.log
+logs/
+*.pid
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Backup files
+*.backup
+*.bak
+app.py.backup.*
+deploy-02.sh.backup.*
+
+# Test/output files
+test_output/
+coverage.xml
+
+# Project-specific ignores
+check-repo.sh
