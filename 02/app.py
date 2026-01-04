@@ -176,15 +176,32 @@ def task_detail(task_id):
     
     elif request.method == 'PUT':
         data = request.json
+        # First, get the current task
+        cursor.execute("""
+            SELECT * FROM tasks WHERE id = %s
+        """, (task_id,))
+        current_task = cursor.fetchone()
+        
+        if not current_task:
+            cursor.close()
+            conn.close()
+            return jsonify({'error': 'Task not found'}), 404
+        
+        # Update only the fields that are provided in the request
+        # Use current values for fields that are not provided
         cursor.execute("""
             UPDATE tasks SET 
                 title=%s, description=%s, category_id=%s, 
                 status=%s, priority=%s, due_date=%s
             WHERE id = %s
         """, (
-            data['title'], data.get('description'), data.get('category_id'),
-            data.get('status', 'todo'), data.get('priority', 'medium'), 
-            data.get('due_date'), task_id
+            data.get('title', current_task['title']), 
+            data.get('description', current_task['description']), 
+            data.get('category_id', current_task['category_id']), 
+            data.get('status', current_task['status']), 
+            data.get('priority', current_task['priority']), 
+            data.get('due_date', current_task['due_date']), 
+            task_id
         ))
         conn.commit()
         cursor.close()
@@ -210,4 +227,3 @@ def categories():
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
-
