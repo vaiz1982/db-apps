@@ -79,31 +79,32 @@ gunicorn --workers 3 --bind 0.0.0.0:8002 --access-logfile - --error-logfile - ws
 
 
 
-db-apps/
-├── .gitignore                    # General rules for ALL projects
-│   ├── venv*/                    # Any virtual env
-│   ├── .env                      # Any .env file  
-│   ├── __pycache__/              # Any Python cache
+## 📁 Repository Structure
+
+\`\`\`
+db-apps/                           # Root repository
+├── .gitignore                     # General patterns for ALL projects
+│   └── Patterns: venv*/ .env __pycache__/ *.backup*
+├── 01/                            # Project 01: Servers Manager
+│   ├── .gitignore                 # Project-specific rules (if any)
+│   ├── README.md
+│   ├── app.py
+│   ├── deploy.sh
 │   └── ...
-├── 01/
-│   ├── .gitignore                # Project 01 specific rules
-│   └── ...
-└── 02/
-    ├── .gitignore                # Project 02 specific rules
-    │   ├── *.backup*             # Only Project 02 backup files
-    │   ├── app.py.backup*        # Specific to Project 02
-    │   └── task_tracker_venv/    # If you use different venv name
-    └── ...
+└── 02/                            # Project 02: Task Tracker API (this project)
+    ├── README.md                  # This documentation
+    ├── deploy-02.sh              # Deployment script with testing
+    ├── app.py                    # Flask app (PUT endpoint fixed)
+    ├── wsgi.py                   # Gunicorn entry point
+    ├── .env.example              # Configuration template
+    ├── .gitignore                # Project-specific patterns only
+    │   └── Patterns: app.py.backup* deploy-02.sh.backup*
+    └── requirements.txt          # Python dependencies
+\`\`\`
 
-
-
-
-
-
-
-
-🔧 Configuration
-Environment Variables (.env)
+### Gitignore Strategy:
+- **Root \`.gitignore\`**: General patterns that apply to ALL projects (\`venv*/\`, \`.env\`, \`__pycache__/\`, \`*.backup*\`)
+- **Project \`.gitignore\`**: Specific patterns for THIS project only (\`app.py.backup*\`, \`deploy-02.sh.backup*\`)
 
 # Database Configuration
 DB_NAME=task_tracker
