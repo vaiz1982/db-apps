@@ -79,6 +79,29 @@ gunicorn --workers 3 --bind 0.0.0.0:8002 --access-logfile - --error-logfile - ws
 
 
 
+db-apps/
+├── .gitignore                    # General rules for ALL projects
+│   ├── venv*/                    # Any virtual env
+│   ├── .env                      # Any .env file  
+│   ├── __pycache__/              # Any Python cache
+│   └── ...
+├── 01/
+│   ├── .gitignore                # Project 01 specific rules
+│   └── ...
+└── 02/
+    ├── .gitignore                # Project 02 specific rules
+    │   ├── *.backup*             # Only Project 02 backup files
+    │   ├── app.py.backup*        # Specific to Project 02
+    │   └── task_tracker_venv/    # If you use different venv name
+    └── ...
+
+
+
+
+
+
+
+
 🔧 Configuration
 Environment Variables (.env)
 
