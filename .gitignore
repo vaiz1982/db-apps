@@ -1,53 +1,50 @@
-cd ~/db-apps
-cat > .gitignore << 'EOF'
-# Python
+# ==========================================
+# ROOT .gitignore - General patterns for ALL projects
+# ==========================================
+
+# Python/Virtual Environments (matches ANY venv)
 venv*/
 venv_*/
-**/__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
+.venv/
 .env
 .venv
+.Python
 
-# Database
+# Python cache (anywhere)
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# Database files
 *.sqlite3
 *.db
+*.sql
 
 # Logs
 *.log
 logs/
 *.pid
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
 
-# IDE
+# IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# System
+# System files
 *.service
 /tmp/
 
-# Project specific
+# Project-specific generated files
 clean_schema.sql
 schema.sql
-EOF
 
-# Project-specific ignores
-# 01 - Servers Manager
-01/venv_01/
-01/.env
-01/__pycache__/
-01/*.backup*
-
-# 02 - Task Tracker
-02/venv_02/
-02/.env
-02/__pycache__/
-02/*.backup*
+# Backup files (any .backup anywhere)
+*.backup
+*.backup*
