@@ -48,3 +48,4 @@ schema.sql
 # Backup files (any .backup anywhere)
 *.backup
 *.backup*
+check-repo.sh
